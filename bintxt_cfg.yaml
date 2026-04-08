@@ -42,9 +42,13 @@ defaults:
 
 # ── Output behavior ───────────────────────────────────────────────────────────
 output:
-  keep_runs:      10      # number of build/run_* dirs to retain locally
-  track_checksum: false   # true  = commit .bin.crc32 sidecars to git
-                          # false = gitignore sidecars (default)
+  keep_runs:            10      # number of build/run_* dirs to retain locally
+  track_checksum:       false   # true  = commit .bin.crc32 sidecars to git
+                                # false = gitignore sidecars (default)
+  generate_yaml_example: true   # write bintxt_cfg.example.yaml after each run
+                                # lists every discovered binary with its effective config
+                                # fields using global defaults are flagged: # UPDATE DEFAULT
+                                # set to false to suppress
 
 # ── Binary definitions ────────────────────────────────────────────────────────
 # List binaries you want format overrides or label injection for.
