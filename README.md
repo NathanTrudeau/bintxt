@@ -57,6 +57,7 @@ Edit `bintxt_cfg.yaml` to match your binary format(s). All fields have sensible 
 | `defaults.checksum_algorithm` | `crc32` | `crc32`, `md5`, or `sha256` |
 | `output.keep_runs` | `10` | How many `build/run_*` dirs to retain locally |
 | `output.track_checksum` | `false` | `true` = commit `.bin.crc32` sidecars to git |
+| `output.generate_yaml_example` | `true` | Write `bintxt_cfg.example.yaml` after each run — one skeleton entry per discovered binary, format fields filled in. Fields that fell back to global defaults are marked `# UPDATE DEFAULT` so you know what to verify before copying into your actual config. Set to `false` to suppress. |
 | `validation.*` | `true` | Set to `false` to downgrade any rule to a warning |
 
 Per-binary format overrides and label definitions go under `binaries:` — see the full example at the bottom.
