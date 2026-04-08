@@ -413,7 +413,17 @@ def parse_txt(path, bin_cfg, val_cfg, log):
         if line.startswith('#'):
             continue
         if line.startswith('@label'):
-            continue  # labels are injected by bintxt — silently skip during pack
+            # Warn if this label name isn't defined in the YAML for this binary
+            lname = line[6:].strip()
+            if lname and bin_cfg.get('label') and bin_cfg.get('labels'):
+                yaml_names = {str(l.get('label', '')) for l in bin_cfg['labels']}
+                if lname not in yaml_names:
+                    warnings.append(
+                        f"line {lineno}: @label '{lname}' is not defined in "
+                        f"bintxt_cfg.yaml — add it under binaries.labels or it "
+                        f"will be lost on next unpack"
+                    )
+            continue  # labels are injected by bintxt — skip during pack
         if ':' not in line:
             if val_cfg['fail_on_invalid_hex']:
                 errors.append(f"line {lineno}: unrecognized format: '{line[:60]}'")
