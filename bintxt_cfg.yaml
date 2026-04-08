@@ -1,0 +1,77 @@
+# =============================================================================
+# bintxt_cfg.yaml — configuration for bintxt.sh
+#
+# Place this file in the same directory as bintxt.sh (your repo root).
+# This file is the single source of truth for all binary format definitions,
+# validation behavior, and output settings.
+#
+# https://github.com/NathanTrudeau/bintxt
+# =============================================================================
+
+version: 1
+
+# ── Directory paths ───────────────────────────────────────────────────────────
+# All paths are relative to the directory containing bintxt.sh.
+paths:
+  config_dir: configs    # .txt (source of truth) and .bin (inputs) live here
+  build_dir:  build      # packed/unpacked outputs organized per run
+  log_dir:    logs       # run logs
+
+# ── Validation rules ──────────────────────────────────────────────────────────
+# Set to false to downgrade a rule from error to warning.
+# Errors skip the file; warnings are logged and execution continues.
+validation:
+  fail_on_duplicate_addresses:    true   # same address appears twice in a .txt
+  fail_on_non_monotonic_addresses: true  # addresses not strictly increasing
+  fail_on_stride_mismatch:        true   # gap between addresses != stride
+  fail_on_invalid_hex:            true   # bad hex in address or word fields
+  fail_on_invalid_word_count:     true   # more words than words_per_line
+  fail_on_partial_word:           true   # file size not aligned to word width
+  fail_on_missing_label_address:  true   # label address doesn't exist in binary
+  checksum_required:              true   # compute and write checksum sidecar
+
+# ── Format defaults ───────────────────────────────────────────────────────────
+# Applied to any binary not explicitly listed under binaries:.
+# Override per-file in the binaries: section below.
+defaults:
+  address_bits:       32       # 32 or 64
+  word_bits:          8        # 8, 16, 32, or 64
+  words_per_line:     6        # 1–6 words per .txt line
+  endianness:         little   # little or big
+  checksum_algorithm: crc32    # crc32, md5, or sha256
+
+# ── Output behavior ───────────────────────────────────────────────────────────
+output:
+  keep_runs:      10      # number of build/run_* dirs to retain locally
+  track_checksum: false   # true  = commit .bin.crc32 sidecars to git
+                          # false = gitignore sidecars (default)
+
+# ── Binary definitions ────────────────────────────────────────────────────────
+# List binaries you want format overrides or label injection for.
+# Files not listed here are processed with the defaults above (no labels).
+#
+# Fields:
+#   file             - filename inside configs/ (required)
+#   label            - true = inject @label markers during unpack
+#   format           - override any default format settings for this file
+#   checksum         - override the checksum algorithm for this file
+#   labels           - list of {address, label} pairs (hex addresses)
+#
+# Example:
+binaries:
+  - file: example.bin
+    label: true
+    format:
+      address_bits:   32
+      word_bits:      8
+      words_per_line: 6
+      endianness:     little
+    checksum:
+      algorithm: crc32
+    labels:
+      - address: 0x00000000
+        label: HEADER
+      - address: 0x00000010
+        label: BOOT_FLAGS
+      - address: 0x00000030
+        label: CONFIG_BLOCK

@@ -1,0 +1,11 @@
+# bintxt repo
+__pycache__/
+*.pyc
+
+# Local test artifacts
+configs/*.bin
+configs/*.crc32
+configs/*.md5
+configs/*.sha256
+build/
+logs/
