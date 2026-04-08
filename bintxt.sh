@@ -37,6 +37,13 @@ import os, sys, re, zlib, hashlib, shutil
 from datetime import datetime
 from pathlib import Path
 
+# Windows cp1252 fix — force UTF-8 on stdout/stderr before any output
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except AttributeError:
+    pass  # Python < 3.7 fallback (reconfigure not available)
+
 SCRIPT_DIR = Path(sys.argv[1])
 CFG_FILE   = Path(sys.argv[2])
 
@@ -317,7 +324,7 @@ class Logger:
 
     def flush(self):
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        self.log_path.write_text('\n'.join(self._lines) + '\n')
+        self.log_path.write_text('\n'.join(self._lines) + '\n', encoding='utf-8')
 
 # ── .gitignore manager ────────────────────────────────────────────────────────
 def manage_gitignore(repo_root, track_checksum, log):
@@ -641,7 +648,7 @@ def verify(txt_content, bin_data, bin_cfg, label, log):
 def main():
     # Load config
     try:
-        cfg_text = CFG_FILE.read_text()
+        cfg_text = CFG_FILE.read_text(encoding='utf-8')
     except Exception as e:
         print(red(f"FATAL: Cannot read {CFG_FILE}: {e}"))
         sys.exit(1)
