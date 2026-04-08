@@ -413,11 +413,7 @@ def parse_txt(path, bin_cfg, val_cfg, log):
         if line.startswith('#'):
             continue
         if line.startswith('@label'):
-            warnings.append(
-                f"line {lineno}: @label found — labels are managed by bintxt_cfg.yaml, "
-                f"not by hand-editing .txt files. Line ignored."
-            )
-            continue
+            continue  # labels are injected by bintxt — silently skip during pack
         if ':' not in line:
             if val_cfg['fail_on_invalid_hex']:
                 errors.append(f"line {lineno}: unrecognized format: '{line[:60]}'")
