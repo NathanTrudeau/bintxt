@@ -1,0 +1,16 @@
+# sensor_cal.txt
+# Sensor calibration table
+# Format: 8-bit words, 6 per line, little-endian, 32-bit address
+
+@label CAL_HEADER
+00000000: ca 1b 00 01 01 00
+@label TEMP_CAL
+00000006: 80 7f 32 00 01 f4
+@label PRESSURE_CAL
+0000000c: 00 64 00 c8 01 2c
+@label HUMIDITY_CAL
+00000012: 50 00 96 00 05 00
+@label ACCEL_CAL
+00000018: 00 00 00 00 00 00
+@label CAL_CRC
+0000001e: de ad

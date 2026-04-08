@@ -1,0 +1,76 @@
+# bintxt_cfg.yaml — basic_8bit example
+# 8-bit words, 6 per line, little-endian, 32-bit addresses
+# Good for microcontroller register maps and calibration tables.
+
+version: 1
+
+paths:
+  config_dir: configs
+  build_dir:  build
+  log_dir:    logs
+
+validation:
+  fail_on_duplicate_addresses:     true
+  fail_on_non_monotonic_addresses: true
+  fail_on_stride_mismatch:         true
+  fail_on_invalid_hex:             true
+  fail_on_invalid_word_count:      true
+  fail_on_partial_word:            true
+  fail_on_missing_label_address:   true
+  checksum_required:               true
+
+defaults:
+  address_bits:       32
+  word_bits:          8
+  words_per_line:     6
+  endianness:         little
+  checksum_algorithm: crc32
+
+output:
+  keep_runs:      10
+  track_checksum: false
+
+binaries:
+  - file: led_config.bin
+    label: true
+    format:
+      address_bits:   32
+      word_bits:      8
+      words_per_line: 6
+      endianness:     little
+    checksum:
+      algorithm: crc32
+    labels:
+      - address: 0x00000000
+        label: LED_CTRL_BASE
+      - address: 0x00000006
+        label: LED_PWM_BLOCK
+      - address: 0x0000000c
+        label: LED_BLINK_TIMERS
+      - address: 0x00000012
+        label: LED_FAULT_FLAGS
+      - address: 0x00000018
+        label: LED_ID_BYTES
+
+  - file: sensor_cal.bin
+    label: true
+    format:
+      address_bits:   32
+      word_bits:      8
+      words_per_line: 6
+      endianness:     little
+    checksum:
+      algorithm: crc32
+    labels:
+      - address: 0x00000000
+        label: CAL_HEADER
+      - address: 0x00000006
+        label: TEMP_CAL
+      - address: 0x0000000c
+        label: PRESSURE_CAL
+      - address: 0x00000012
+        label: HUMIDITY_CAL
+      - address: 0x00000018
+        label: ACCEL_CAL
+      - address: 0x0000001e
+        label: CAL_CRC

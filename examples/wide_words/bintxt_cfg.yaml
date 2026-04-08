@@ -1,0 +1,74 @@
+# bintxt_cfg.yaml — wide_words example
+# 32-bit words, 4 per line, little-endian, 32-bit addresses
+# Good for ARM/RISC-V DMA descriptors, RTOS config tables, linker maps.
+
+version: 1
+
+paths:
+  config_dir: configs
+  build_dir:  build
+  log_dir:    logs
+
+validation:
+  fail_on_duplicate_addresses:     true
+  fail_on_non_monotonic_addresses: true
+  fail_on_stride_mismatch:         true
+  fail_on_invalid_hex:             true
+  fail_on_invalid_word_count:      true
+  fail_on_partial_word:            true
+  fail_on_missing_label_address:   true
+  checksum_required:               true
+
+defaults:
+  address_bits:       32
+  word_bits:          32
+  words_per_line:     4
+  endianness:         little
+  checksum_algorithm: sha256
+
+output:
+  keep_runs:      10
+  track_checksum: false
+
+binaries:
+  - file: dma_cfg.bin
+    label: true
+    format:
+      address_bits:   32
+      word_bits:      32
+      words_per_line: 4
+      endianness:     little
+    checksum:
+      algorithm: sha256
+    labels:
+      - address: 0x00000000
+        label: DMA_CHAN0
+      - address: 0x00000010
+        label: DMA_CHAN1
+      - address: 0x00000020
+        label: DMA_CHAN2
+      - address: 0x00000030
+        label: DMA_CHAN3
+      - address: 0x00000040
+        label: DMA_CTRL
+
+  - file: task_sched.bin
+    label: true
+    format:
+      address_bits:   32
+      word_bits:      32
+      words_per_line: 4
+      endianness:     little
+    checksum:
+      algorithm: sha256
+    labels:
+      - address: 0x00000000
+        label: SCHED_HEADER
+      - address: 0x00000010
+        label: TASK_IDLE
+      - address: 0x00000020
+        label: TASK_COMM
+      - address: 0x00000030
+        label: TASK_SENSOR
+      - address: 0x00000040
+        label: TASK_LOGGER
