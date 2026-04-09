@@ -883,14 +883,16 @@ def main():
         log.write(bold("─" * 62))
         log.write(f"  {bold(base)}")
 
-        # Get binary config — hard fail if no YAML entry exists
-        bin_cfg = get_binary_cfg(cfg, f'{base}.bin', defaults)
-        if bin_cfg is None:
+        # Get binary config
+        bin_cfg      = get_binary_cfg(cfg, f'{base}.bin', defaults)
+        no_yaml_entry = bin_cfg is None
+        if no_yaml_entry:
             log.err(f"{base}.bin has no entry in bintxt_cfg.yaml")
-            log.write(f"    Add a 'binaries:' entry for this file to proceed.")
-            log.write(f"    See bintxt_cfg.example.yaml for the required format.")
+            log.write(f"    Unpacking with defaults for first-run inspection.")
+            log.write(f"    Fill out bintxt_cfg.example.yaml, then re-run for full pipeline.")
+            bin_cfg = _default_bin_cfg(f'{base}.bin', defaults)
             failures += 1
-            continue  # skip all processing for this file
+            # Continue — but only do best-effort unpack to configs/, skip pack + verify
 
         # Validate label addresses
         if bin_cfg['label'] and val_cfg['fail_on_missing_label_address'] and has_bin:
@@ -909,27 +911,28 @@ def main():
         unpacked_txt = None
 
         # ── PACK ──────────────────────────────────────────────────────────────
-        if has_txt:
+        # Skipped for files with no YAML entry — format is unknown
+        if has_txt and not no_yaml_entry:
             log.write(f"  PACK   {cyan(txt_path.name)} → ...")
             packed_data = pack(txt_path, bin_cfg, val_cfg, log)
             if packed_data is not None:
-                # Write to build only — configs/ is input-only
+                # Pack output goes to build/ only
                 out_p = run_dir / 'packed' / f'{base}.bin'
                 out_p.write_bytes(packed_data)
                 shutil.copy2(out_p, build_dir / 'latest' / 'packed' / f'{base}.bin')
 
                 # Checksum
-                algo     = bin_cfg['checksum_algorithm']
-                chk      = compute_checksum(packed_data, algo)
-                ext      = sidecar_ext(algo)
-                sc_name  = f'{base}.bin.{ext}'
-                sc_text  = f'{chk}  {base}.bin\n'
+                algo    = bin_cfg['checksum_algorithm']
+                chk     = compute_checksum(packed_data, algo)
+                ext     = sidecar_ext(algo)
+                sc_name = f'{base}.bin.{ext}'
+                sc_text = f'{chk}  {base}.bin\n'
 
-                (run_dir / 'packed' / sc_name).write_text(sc_text)
+                (run_dir / 'packed' / sc_name).write_text(sc_text, encoding='utf-8')
                 shutil.copy2(run_dir / 'packed' / sc_name,
                              build_dir / 'latest' / 'packed' / sc_name)
                 if out_cfg['track_checksum']:
-                    (config_dir / sc_name).write_text(sc_text)
+                    (config_dir / sc_name).write_text(sc_text, encoding='utf-8')
 
                 log.ok(f"Packed: {base}.bin  ({len(packed_data)} bytes)  "
                        f"{algo.upper()}: {chk}")
@@ -944,9 +947,17 @@ def main():
             log.write(f"  UNPACK {cyan(bin_path.name)} → ...")
             unpacked_txt = unpack(bin_path, bin_cfg, val_cfg, log)
             if unpacked_txt is not None:
+                # Always write to build/
                 out_u = run_dir / 'unpacked' / f'{base}.txt'
-                out_u.write_text(unpacked_txt)
+                out_u.write_text(unpacked_txt, encoding='utf-8')
                 shutil.copy2(out_u, build_dir / 'latest' / 'unpacked' / f'{base}.txt')
+
+                # Write to configs/ if no .txt exists yet
+                # — populates the source of truth on first encounter
+                if not has_txt:
+                    (config_dir / f'{base}.txt').write_text(unpacked_txt, encoding='utf-8')
+                    log.info(f"First run: wrote {base}.txt → configs/ for inspection")
+
                 log.ok(f"Unpacked: {base}.txt  ({len(unpacked_txt.splitlines())} lines)")
                 results['unpack'][base] = 'PASS'
             else:
@@ -955,28 +966,30 @@ def main():
                 failures += 1
 
         # ── VERIFY ────────────────────────────────────────────────────────────
-        log.write("  Verification:")
+        # Skipped entirely for files with no YAML entry
+        if not no_yaml_entry:
+            log.write("  Verification:")
 
-        if has_txt and packed_data is not None:
-            ok = verify(txt_path.read_text(), packed_data, bin_cfg,
-                        f"verify_pack({base})", log)
-            results['verify_pack'][base] = 'PASS' if ok else 'FAIL'
-            if not ok:
-                failures += 1
+            if has_txt and packed_data is not None:
+                ok = verify(txt_path.read_text(encoding='utf-8'), packed_data, bin_cfg,
+                            f"verify_pack({base})", log)
+                results['verify_pack'][base] = 'PASS' if ok else 'FAIL'
+                if not ok:
+                    failures += 1
 
-        if has_bin and unpacked_txt is not None:
-            ok = verify(unpacked_txt, bin_path.read_bytes(), bin_cfg,
-                        f"verify_unpack({base})", log)
-            results['verify_unpack'][base] = 'PASS' if ok else 'FAIL'
-            if not ok:
-                failures += 1
+            if has_bin and unpacked_txt is not None:
+                ok = verify(unpacked_txt, bin_path.read_bytes(), bin_cfg,
+                            f"verify_unpack({base})", log)
+                results['verify_unpack'][base] = 'PASS' if ok else 'FAIL'
+                if not ok:
+                    failures += 1
 
-        if has_txt and has_bin:
-            ok = verify(txt_path.read_text(), bin_path.read_bytes(), bin_cfg,
-                        f"verify_source_pair({base})", log)
-            results['verify_source_pair'][base] = 'PASS' if ok else 'FAIL'
-            if not ok:
-                failures += 1
+            if has_txt and has_bin:
+                ok = verify(txt_path.read_text(encoding='utf-8'), bin_path.read_bytes(), bin_cfg,
+                            f"verify_source_pair({base})", log)
+                results['verify_source_pair'][base] = 'PASS' if ok else 'FAIL'
+                if not ok:
+                    failures += 1
 
     # ── Summary ───────────────────────────────────────────────────────────────
     log.write("")
