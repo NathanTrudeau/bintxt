@@ -15,14 +15,68 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG_FILE="$SCRIPT_DIR/bintxt_cfg.yaml"
 
-# ── Pre-flight ────────────────────────────────────────────────────────────────
-if ! command -v python3 &>/dev/null; then
-    echo "ERROR: python3 is required but not found."
-    echo "       Install Python 3.8+ and ensure it is in your PATH."
+# ── Python resolver ───────────────────────────────────────────────────────────
+# On Windows, 'python3' may resolve to a WindowsApps stub that opens the
+# Microsoft Store, VS Code, or another Electron launcher instead of Python.
+# Resolution order: py -3  →  python3  →  python  (skip WindowsApps stubs)
+
+_resolve_python() {
+    local candidates=()
+
+    # Windows Python Launcher (most reliable on corporate Windows)
+    if command -v py &>/dev/null; then
+        candidates+=("py -3")
+    fi
+
+    # python3 — but NOT if it points to a WindowsApps stub
+    if command -v python3 &>/dev/null; then
+        local p3
+        p3="$(command -v python3 2>/dev/null)"
+        if echo "$p3" | grep -qi "WindowsApps"; then
+            echo "WARNING: python3 resolves to a Windows App Execution Alias:" >&2
+            echo "         $p3" >&2
+            echo "         This stub can open the Microsoft Store, VS Code, or another" >&2
+            echo "         Electron app instead of running Python — skipping it." >&2
+        else
+            candidates+=("python3")
+        fi
+    fi
+
+    # python fallback
+    if command -v python &>/dev/null; then
+        local py
+        py="$(command -v python 2>/dev/null)"
+        if ! echo "$py" | grep -qi "WindowsApps"; then
+            candidates+=("python")
+        fi
+    fi
+
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+        echo "ERROR: No valid Python interpreter found." >&2
+        echo "       Install Python 3.8+ from https://python.org" >&2
+        echo "       On Windows, ensure 'Add Python to PATH' is checked during install." >&2
+        echo "       On corporate machines, try: py -3 --version" >&2
+        return 1
+    fi
+
+    # Return first candidate — verify it actually runs
+    for candidate in "${candidates[@]}"; do
+        if $candidate -c "import sys; assert sys.version_info >= (3,8)" 2>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    echo "ERROR: Python 3.8+ required but not found in any resolved interpreter." >&2
+    return 1
+}
+
+PYTHON_CMD=$(_resolve_python) || {
     read -rsp $'\nPress any key to exit...' -n 1; echo ""
     exit 1
-fi
+}
 
+# ── Pre-flight ────────────────────────────────────────────────────────────────
 if [[ ! -f "$CFG_FILE" ]]; then
     echo "ERROR: bintxt_cfg.yaml not found."
     echo "       Expected: $CFG_FILE"
@@ -32,7 +86,7 @@ if [[ ! -f "$CFG_FILE" ]]; then
 fi
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
-python3 - "$SCRIPT_DIR" "$CFG_FILE" <<'PYEOF'
+$PYTHON_CMD - "$SCRIPT_DIR" "$CFG_FILE" <<'PYEOF'
 import os, sys, re, zlib, hashlib, shutil
 from datetime import datetime
 from pathlib import Path
@@ -52,25 +106,33 @@ def _print_diagnostics():
     """Print subtle runtime context. Warns loudly if VS Code/Electron detected."""
     import platform
     DIM = '\033[2m'; Y = '\033[1;33m'; NC = '\033[0m'
-    in_vscode = any(k in os.environ for k in
-                    ('VSCODE_PID', 'VSCODE_IPC_HOOK', 'VSCODE_IPC_HOOK_CLI'))
+    exe        = sys.executable.replace('\\', '/')
+    in_vscode  = any(k in os.environ for k in
+                     ('VSCODE_PID', 'VSCODE_IPC_HOOK', 'VSCODE_IPC_HOOK_CLI'))
     term_prog  = os.environ.get('TERM_PROGRAM', '')
     if term_prog.lower() == 'vscode':
         in_vscode = True
-    shell = os.environ.get('SHELL') or os.environ.get('COMSPEC') or 'unknown'
+    bad_exe    = any(s in exe.lower() for s in ('windowsapps', 'vscode', 'microsoft vs code'))
+    shell      = os.environ.get('SHELL') or os.environ.get('COMSPEC') or 'unknown'
 
     print(f"{DIM}── bintxt diagnostics ──────────────────────────────────────{NC}")
-    print(f"{DIM}  python   : {sys.executable}{NC}")
+    print(f"{DIM}  python   : {exe}{NC}")
     print(f"{DIM}  version  : {sys.version.split()[0]}{NC}")
     print(f"{DIM}  platform : {sys.platform} / {platform.system()} {platform.release()}{NC}")
     print(f"{DIM}  shell    : {shell}{NC}")
     print(f"{DIM}  terminal : {term_prog or os.environ.get('TERM', 'unknown')}{NC}")
     print(f"{DIM}  tty      : {sys.stdout.isatty()}{NC}")
-    if in_vscode:
+
+    if bad_exe:
+        print(f"{Y}  ⚠  Python resolved to a suspicious path:{NC}")
+        print(f"{Y}     {exe}{NC}")
+        print(f"{Y}     WindowsApps stubs and VS Code-bundled Python can launch{NC}")
+        print(f"{Y}     Electron/Chromium processes and produce cache_util_win.cc errors.{NC}")
+        print(f"{Y}     Install Python from https://python.org and use 'py -3' or Git Bash.{NC}")
+    elif in_vscode:
         print(f"{Y}  ⚠  VS Code / Electron terminal detected.{NC}")
-        print(f"{Y}     Chromium cache errors in this output (cache_util_win.cc,{NC}")
-        print(f"{Y}     disk_cache.cc) are from VS Code itself — NOT from bintxt.{NC}")
-        print(f"{Y}     For a clean run, use Git Bash or Windows Terminal instead.{NC}")
+        print(f"{Y}     cache_util_win.cc / disk_cache.cc errors come from VS Code itself,{NC}")
+        print(f"{Y}     not bintxt. Run from Git Bash or Windows Terminal for a clean output.{NC}")
     print(f"{DIM}────────────────────────────────────────────────────────────{NC}")
 
 # ── ANSI ──────────────────────────────────────────────────────────────────────
