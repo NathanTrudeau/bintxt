@@ -47,6 +47,32 @@ except AttributeError:
 SCRIPT_DIR = Path(sys.argv[1])
 CFG_FILE   = Path(sys.argv[2])
 
+# ── Runtime diagnostics ───────────────────────────────────────────────────────
+def _print_diagnostics():
+    """Print subtle runtime context. Warns loudly if VS Code/Electron detected."""
+    import platform
+    DIM = '\033[2m'; Y = '\033[1;33m'; NC = '\033[0m'
+    in_vscode = any(k in os.environ for k in
+                    ('VSCODE_PID', 'VSCODE_IPC_HOOK', 'VSCODE_IPC_HOOK_CLI'))
+    term_prog  = os.environ.get('TERM_PROGRAM', '')
+    if term_prog.lower() == 'vscode':
+        in_vscode = True
+    shell = os.environ.get('SHELL') or os.environ.get('COMSPEC') or 'unknown'
+
+    print(f"{DIM}── bintxt diagnostics ──────────────────────────────────────{NC}")
+    print(f"{DIM}  python   : {sys.executable}{NC}")
+    print(f"{DIM}  version  : {sys.version.split()[0]}{NC}")
+    print(f"{DIM}  platform : {sys.platform} / {platform.system()} {platform.release()}{NC}")
+    print(f"{DIM}  shell    : {shell}{NC}")
+    print(f"{DIM}  terminal : {term_prog or os.environ.get('TERM', 'unknown')}{NC}")
+    print(f"{DIM}  tty      : {sys.stdout.isatty()}{NC}")
+    if in_vscode:
+        print(f"{Y}  ⚠  VS Code / Electron terminal detected.{NC}")
+        print(f"{Y}     Chromium cache errors in this output (cache_util_win.cc,{NC}")
+        print(f"{Y}     disk_cache.cc) are from VS Code itself — NOT from bintxt.{NC}")
+        print(f"{Y}     For a clean run, use Git Bash or Windows Terminal instead.{NC}")
+    print(f"{DIM}────────────────────────────────────────────────────────────{NC}")
+
 # ── ANSI ──────────────────────────────────────────────────────────────────────
 R   = '\033[0;31m'
 G   = '\033[0;32m'
@@ -715,6 +741,8 @@ def write_yaml_example(all_bases, cfg, defaults, script_dir, log):
 
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 def main():
+    _print_diagnostics()
+
     # Load config
     try:
         cfg_text = CFG_FILE.read_text(encoding='utf-8')
@@ -793,11 +821,14 @@ def main():
         log.write(bold("─" * 62))
         log.write(f"  {bold(base)}")
 
-        # Get binary config
+        # Get binary config — hard fail if no YAML entry exists
         bin_cfg = get_binary_cfg(cfg, f'{base}.bin', defaults)
         if bin_cfg is None:
-            log.warn(f"{base}.bin has no YAML entry — using defaults, no label injection")
-            bin_cfg = _default_bin_cfg(f'{base}.bin', defaults)
+            log.err(f"{base}.bin has no entry in bintxt_cfg.yaml")
+            log.write(f"    Add a 'binaries:' entry for this file to proceed.")
+            log.write(f"    See bintxt_cfg.example.yaml for the required format.")
+            failures += 1
+            continue  # skip all processing for this file
 
         # Validate label addresses
         if bin_cfg['label'] and val_cfg['fail_on_missing_label_address'] and has_bin:
@@ -820,16 +851,10 @@ def main():
             log.write(f"  PACK   {cyan(txt_path.name)} → ...")
             packed_data = pack(txt_path, bin_cfg, val_cfg, log)
             if packed_data is not None:
-                # Write to build
+                # Write to build only — configs/ is input-only
                 out_p = run_dir / 'packed' / f'{base}.bin'
                 out_p.write_bytes(packed_data)
                 shutil.copy2(out_p, build_dir / 'latest' / 'packed' / f'{base}.bin')
-
-                # Write to configs/ if no .bin existed
-                if not has_bin:
-                    (config_dir / f'{base}.bin').write_bytes(packed_data)
-                    log.warn(f"No {base}.bin in configs/ — packed output written there. "
-                             f"Add a YAML entry for this file.")
 
                 # Checksum
                 algo     = bin_cfg['checksum_algorithm']
