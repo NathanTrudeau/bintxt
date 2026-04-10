@@ -870,6 +870,13 @@ def main():
                     (config_dir / f'{base}.txt').write_text(unpacked_txt, encoding='utf-8')
                     log.info(f"First run: wrote {base}.txt → configs/ for inspection")
 
+                # Move .bin out of configs/ — bins don't belong there
+                input_bins_dir = run_dir / 'input_bins'
+                input_bins_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(bin_path), str(input_bins_dir / f'{base}.bin'))
+                bin_path = input_bins_dir / f'{base}.bin'  # update ref for verify step
+                log.info(f"Moved {base}.bin → build/ (bins don't belong in configs/)")
+
                 log.ok(f"Unpacked: {base}.txt  ({len(unpacked_txt.splitlines())} lines)")
                 results['unpack'][base] = 'PASS'
             else:
