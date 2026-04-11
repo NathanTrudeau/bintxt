@@ -988,11 +988,13 @@ def main():
 
         # Report .txt source changes since last run
         if has_txt:
-            curr_hash = _txt_hash(txt_path)
-            prev_hash = run_state.get(base, {}).get('txt_hash')
-            if prev_hash is None:
+            curr_hash  = _txt_hash(txt_path)
+            prev_entry = run_state.get(base, {})
+            prev_hash  = prev_entry.get('txt_hash')
+            known_file = bool(prev_entry)  # had any state entry before this run
+            if prev_hash is None and not known_file:
                 log.info(f"  source: new")
-            elif curr_hash != prev_hash:
+            elif prev_hash is not None and curr_hash != prev_hash:
                 log.warn(f"  source: modified since last run")
 
         # Get binary config
