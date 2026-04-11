@@ -373,10 +373,16 @@ def save_state(script_dir, state):
 def check_cfg_change(base, bin_cfg, state, log):
     """Detect YAML settings change since last run.
     Returns (changed: bool, prev_cfg: dict|None)."""
-    prev = state.get(base)
-    curr = _cfg_fingerprint(bin_cfg)
+    entry          = state.get(base)
+    prev           = entry.get('config') if entry else None
+    from_discovery = entry.get('from_discovery', False) if entry else False
+    curr           = _cfg_fingerprint(bin_cfg)
     if prev is None or prev == curr:
         return False, prev
+    # Discovery → real config: apply silently, no warning
+    if from_discovery:
+        log.info(f"  Applying initial YAML configuration for {base}")
+        return True, prev
     log.warn(f"YAML settings changed for {base}:")
     for k in _STATE_KEYS:
         old_v = prev.get(k, '—')
@@ -989,10 +995,10 @@ def main():
         # Report .txt source changes since last run
         if has_txt:
             curr_hash  = _txt_hash(txt_path)
-            prev_entry = run_state.get(base, {})
-            prev_hash  = prev_entry.get('txt_hash')
-            known_file = bool(prev_entry)  # had any state entry before this run
-            if prev_hash is None and not known_file:
+            prev_entry = run_state.get(base)
+            prev_hash  = prev_entry.get('txt_hash') if prev_entry else None
+            known_file = prev_entry is not None
+            if not known_file:
                 log.info(f"  source: new")
             elif prev_hash is not None and curr_hash != prev_hash:
                 log.warn(f"  source: modified since last run")
@@ -1160,17 +1166,19 @@ def main():
         log.head("Generate YAML Example")
         write_yaml_example(all_bases, cfg, defaults, SCRIPT_DIR, log)
 
-    # Save updated config state
-    # Discovery runs save the default fingerprint so the next run (with real YAML)
-    # can detect the settings change and reformat .txt files
+    # Save updated config state — config fingerprint and txt_hash are stored separately
+    # so the fingerprint comparison stays clean (no extra keys polluting the diff)
     for base in all_bases:
-        bin_cfg = get_binary_cfg(cfg, f'{base}.bin', defaults)
-        fp = _cfg_fingerprint(bin_cfg) if bin_cfg is not None \
-             else _cfg_fingerprint(_default_bin_cfg(f'{base}.bin', defaults))
-        # Always snapshot current .txt hash (post-run, after any reformat/unpack)
-        txt_p = config_dir / f'{base}.txt'
-        fp['txt_hash'] = _txt_hash(txt_p) if txt_p.exists() else None
-        new_state[base] = fp
+        bin_cfg        = get_binary_cfg(cfg, f'{base}.bin', defaults)
+        is_discovery   = base in discoveries
+        fp             = _cfg_fingerprint(bin_cfg) if bin_cfg is not None \
+                         else _cfg_fingerprint(_default_bin_cfg(f'{base}.bin', defaults))
+        txt_p          = config_dir / f'{base}.txt'
+        new_state[base] = {
+            'config':         fp,
+            'txt_hash':       _txt_hash(txt_p) if txt_p.exists() else None,
+            'from_discovery': is_discovery,
+        }
     save_state(SCRIPT_DIR, new_state)
 
     log.write(bold(SEP))
