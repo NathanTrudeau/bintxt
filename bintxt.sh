@@ -341,7 +341,13 @@ _STATE_KEYS = ('word_bits', 'words_per_line', 'address_bits', 'endianness',
                'checksum_algorithm', 'label')
 
 def _cfg_fingerprint(bin_cfg):
-    return {k: bin_cfg[k] for k in _STATE_KEYS}
+    fp = {k: bin_cfg[k] for k in _STATE_KEYS}
+    # Include labels list so label additions/renames/removals trigger re-extract
+    fp['labels'] = sorted(
+        (str(l.get('address', '')), str(l.get('label', '')))
+        for l in (bin_cfg.get('labels') or [])
+    )
+    return fp
 
 def load_state(script_dir):
     p = Path(script_dir) / '.bintxt_state'
@@ -459,9 +465,10 @@ def manage_gitignore(repo_root, track_checksum, log):
 def setup_run_dirs(build_dir, log_dir, keep_runs):
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_dir = build_dir / f'run_{ts}'
-    for sub in ('packed', 'unpacked', 'input_bins'):
+    for sub in ('packed', 'unpacked'):
         (run_dir / sub).mkdir(parents=True, exist_ok=True)
         (build_dir / 'latest' / sub).mkdir(parents=True, exist_ok=True)
+    # input_bins/ created lazily — only if .bin files are actually found in configs/
     log_dir.mkdir(parents=True, exist_ok=True)
     # Prune old runs
     runs = sorted(build_dir.glob('run_*'), key=lambda p: p.stat().st_mtime)
@@ -979,11 +986,15 @@ def main():
                     log.info(f"First run: wrote {base}.txt → configs/ for inspection")
 
                 # Move .bin out of configs/ — bins don't belong there
+                # Both dirs created lazily here, only when bins are actually present
                 input_bins_dir = run_dir / 'input_bins'
+                input_bins_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(bin_path), str(input_bins_dir / f'{base}.bin'))
                 bin_path = input_bins_dir / f'{base}.bin'  # update ref for verify step
                 # Keep latest copy for YAML-change auto re-extraction
-                shutil.copy2(bin_path, build_dir / 'latest' / 'input_bins' / f'{base}.bin')
+                latest_input_bins = build_dir / 'latest' / 'input_bins'
+                latest_input_bins.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(bin_path, latest_input_bins / f'{base}.bin')
                 log.info(f"Moved {base}.bin → build/ (bins don't belong in configs/)")
 
                 log.ok(f"Unpacked: {base}.txt  ({len(unpacked_txt.splitlines())} lines)")
