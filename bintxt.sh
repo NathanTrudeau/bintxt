@@ -370,8 +370,9 @@ def check_cfg_change(base, bin_cfg, state, log):
             log.write(f"    {k}: {yellow(str(old_v))} → {cyan(str(new_v))}")
     return True
 
-def try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, log):
+def try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, run_dir, log):
     """Re-extract .txt from build/latest/input_bins/<base>.bin using updated YAML settings.
+    Backs up the old .txt to run_dir/old_txts/ before overwriting.
     Returns True if successful, False if no cached bin available."""
     cached_bin = build_dir / 'latest' / 'input_bins' / f'{base}.bin'
     if not cached_bin.exists():
@@ -383,6 +384,12 @@ def try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, log):
         log.err(f"  Re-extraction of {base}.bin failed — check YAML settings")
         return False
     txt_path = config_dir / f'{base}.txt'
+    # Back up old .txt before overwriting
+    if txt_path.exists():
+        old_txts_dir = run_dir / 'old_txts'
+        old_txts_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(txt_path, old_txts_dir / f'{base}.txt')
+        log.info(f"  Backed up old {base}.txt → build/run_<ts>/old_txts/")
     txt_path.write_text(unpacked, encoding='utf-8')
     log.ok(f"  Re-extracted {base}.txt under new settings — review diff before committing")
     return True
@@ -902,7 +909,7 @@ def main():
             if cfg_changed and has_txt and not has_bin:
                 # .txt exists but was generated with old settings — auto re-extract
                 log.write(f"  Auto re-extracting {base}.txt from cached bin...")
-                reextracted = try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, log)
+                reextracted = try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, run_dir, log)
                 if reextracted:
                     # Refresh has_txt (file was just rewritten)
                     has_txt = (config_dir / f'{base}.txt').exists()
@@ -1060,10 +1067,14 @@ def main():
         write_yaml_example(all_bases, cfg, defaults, SCRIPT_DIR, log)
 
     # Save updated config state
+    # Discovery runs save the default fingerprint so the next run (with real YAML)
+    # can detect the settings change and auto re-extract .txt files
     for base in all_bases:
         bin_cfg = get_binary_cfg(cfg, f'{base}.bin', defaults)
         if bin_cfg is not None:
             new_state[base] = _cfg_fingerprint(bin_cfg)
+        elif base in discoveries:
+            new_state[base] = _cfg_fingerprint(_default_bin_cfg(f'{base}.bin', defaults))
     save_state(SCRIPT_DIR, new_state)
 
     log.write(bold(SEP))
