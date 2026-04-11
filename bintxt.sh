@@ -15,12 +15,44 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG_FILE="$SCRIPT_DIR/bintxt_cfg.yaml"
 
-# ── Pre-flight checks ─────────────────────────────────────────────────────────
-if ! command -v python3 &>/dev/null; then
-    echo "ERROR: python3 not found. Install Python 3.8+ from https://python.org"
+# ── Python resolver ───────────────────────────────────────────────────────────
+# Tries .exe-suffixed names first (Git Bash on Windows finds these reliably),
+# then falls back to bare names. Skips anything resolving through WindowsApps.
+PY_CMD=()
+if command -v py.exe >/dev/null 2>&1; then
+    PY_CMD=(py.exe -3)
+elif command -v python.exe >/dev/null 2>&1; then
+    PY_PATH="$(command -v python.exe)"
+    if [[ "$PY_PATH" != *WindowsApps* ]]; then
+        PY_CMD=(python.exe)
+    fi
+elif command -v python3.exe >/dev/null 2>&1; then
+    PY_PATH="$(command -v python3.exe)"
+    if [[ "$PY_PATH" != *WindowsApps* ]]; then
+        PY_CMD=(python3.exe)
+    fi
+elif command -v python >/dev/null 2>&1; then
+    PY_PATH="$(command -v python)"
+    if [[ "$PY_PATH" != *WindowsApps* ]]; then
+        PY_CMD=(python)
+    fi
+elif command -v python3 >/dev/null 2>&1; then
+    PY_PATH="$(command -v python3)"
+    if [[ "$PY_PATH" != *WindowsApps* ]]; then
+        PY_CMD=(python3)
+    fi
+fi
+
+if [[ ${#PY_CMD[@]} -eq 0 ]]; then
+    echo "ERROR: No usable Python interpreter found."
+    echo "       On Windows, install Python and/or use the py launcher."
+    echo "       Refusing to use WindowsApps python alias."
     read -rsp $'\nPress any key to exit...' -n 1; echo ""
     exit 1
 fi
+
+echo "Using Python: ${PY_CMD[*]}"
+"${PY_CMD[@]}" -c "import sys; print('  exe:', sys.executable); print('  ver:', sys.version.split()[0])"
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 if [[ ! -f "$CFG_FILE" ]]; then
@@ -32,7 +64,7 @@ if [[ ! -f "$CFG_FILE" ]]; then
 fi
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
-python3 - "$SCRIPT_DIR" "$CFG_FILE" <<'PYEOF'
+"${PY_CMD[@]}" - "$SCRIPT_DIR" "$CFG_FILE" <<'PYEOF'
 import os, sys, re, zlib, hashlib, shutil
 from datetime import datetime
 from pathlib import Path
@@ -302,6 +334,44 @@ def _default_bin_cfg(filename, defaults):
         'labels':             [],
     }
 
+# ── Config state (change detection) ──────────────────────────────────────────
+import json as _json
+
+_STATE_KEYS = ('word_bits', 'words_per_line', 'address_bits', 'endianness',
+               'checksum_algorithm', 'label')
+
+def _cfg_fingerprint(bin_cfg):
+    return {k: bin_cfg[k] for k in _STATE_KEYS}
+
+def load_state(script_dir):
+    p = Path(script_dir) / '.bintxt_state'
+    if p.exists():
+        try:
+            return _json.loads(p.read_text(encoding='utf-8'))
+        except Exception:
+            return {}
+    return {}
+
+def save_state(script_dir, state):
+    p = Path(script_dir) / '.bintxt_state'
+    p.write_text(_json.dumps(state, indent=2), encoding='utf-8')
+
+def check_cfg_change(base, bin_cfg, state, log):
+    """Warn if YAML settings changed since last run. Returns True if changed."""
+    prev = state.get(base)
+    curr = _cfg_fingerprint(bin_cfg)
+    if prev is None or prev == curr:
+        return False
+    log.warn(f"YAML settings changed for {base}.bin since last run:")
+    for k in _STATE_KEYS:
+        old_v = prev.get(k, '—')
+        new_v = curr.get(k, '—')
+        if old_v != new_v:
+            log.write(f"    {k}: {yellow(str(old_v))} → {cyan(str(new_v))}")
+    log.write(f"    Note: existing {base}.txt was generated with old settings.")
+    log.write(f"    Re-pack will use new settings — verify output carefully.")
+    return True
+
 # ── Logger ────────────────────────────────────────────────────────────────────
 _ANSI_RE = re.compile(r'\033\[[0-9;]*m')
 
@@ -348,7 +418,7 @@ def manage_gitignore(repo_root, track_checksum, log):
             lines.remove(pat)
             changed = True
 
-    for pat in ('configs/*.bin', 'build/', 'logs/'):
+    for pat in ('configs/*.bin', 'build/', 'logs/', '.bintxt_state'):
         ensure(pat)
 
     crc_pats = ['configs/*.crc32', 'configs/*.md5', 'configs/*.sha256']
@@ -709,8 +779,9 @@ def write_yaml_example(all_bases, cfg, defaults, script_dir, log):
                 lines.append(f"      - address: 0x{addr:08x}")
                 lines.append(f"        label: {name}")
         else:
-            lines.append(f"      []  # - address: 0x00000000")
-            lines.append(f"          #   label: MY_LABEL")
+            lines.append(f"      # Add one entry per label, e.g.:")
+            lines.append(f"      # - address: 0x00000000")
+            lines.append(f"      #   label: MY_LABEL")
 
     out.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     log.ok(f"YAML example written → {out.name}")
@@ -763,6 +834,10 @@ def main():
 
     config_dir.mkdir(parents=True, exist_ok=True)
 
+    # Load per-binary config state for change detection
+    run_state = load_state(SCRIPT_DIR)
+    new_state  = dict(run_state)  # will be updated and saved at end
+
     # ── Scan ──────────────────────────────────────────────────────────────────
     log.head("Scan")
     txt_files = sorted(config_dir.glob('*.txt'))
@@ -783,7 +858,8 @@ def main():
     # ── Per-file processing ───────────────────────────────────────────────────
     results = {'pack': {}, 'unpack': {}, 'verify_pack': {},
                'verify_unpack': {}, 'verify_source_pair': {}}
-    failures = 0
+    failures    = 0
+    discoveries = []  # bases with no YAML entry (discovery mode)
 
     for base in all_bases:
         txt_path = config_dir / f'{base}.txt'
@@ -796,15 +872,18 @@ def main():
         log.write(f"  {bold(base)}")
 
         # Get binary config
-        bin_cfg      = get_binary_cfg(cfg, f'{base}.bin', defaults)
+        bin_cfg       = get_binary_cfg(cfg, f'{base}.bin', defaults)
         no_yaml_entry = bin_cfg is None
         if no_yaml_entry:
-            log.err(f"{base}.bin has no entry in bintxt_cfg.yaml")
-            log.write(f"    Unpacking with defaults for first-run inspection.")
-            log.write(f"    Fill out bintxt_cfg.example.yaml, then re-run for full pipeline.")
+            log.warn(f"{base}.bin — no YAML entry (discovery mode)")
+            log.write(f"    Unpacking with defaults for inspection.")
+            log.write(f"    See bintxt_cfg.example.yaml to add a configured entry.")
             bin_cfg = _default_bin_cfg(f'{base}.bin', defaults)
-            failures += 1
-            # Continue — but only do best-effort unpack to configs/, skip pack + verify
+            discoveries.append(base)
+            # Continue — best-effort unpack only; skip pack + verify
+        else:
+            # Check if YAML settings changed since last run
+            check_cfg_change(base, bin_cfg, run_state, log)
 
         # Validate label addresses
         if bin_cfg['label'] and val_cfg['fail_on_missing_label_address'] and has_bin:
@@ -935,14 +1014,34 @@ def main():
     log.write(f"  {dim('Run:')} {run_dir.relative_to(SCRIPT_DIR)}")
     log.write("")
 
-    if failures == 0:
+    if failures == 0 and not discoveries:
         log.write(green("  ALL OPERATIONS PASSED ✓"))
+    elif failures == 0 and discoveries:
+        log.write(yellow(f"  DISCOVERY RUN — {len(discoveries)} file(s) have no YAML entry:"))
+        for d in sorted(discoveries):
+            log.write(f"    • {d}.bin")
+        log.write("")
+        log.write(f"  Next steps:")
+        log.write(f"    1. Open bintxt_cfg.example.yaml (generated below)")
+        log.write(f"    2. Copy entries into bintxt_cfg.yaml and configure format/labels")
+        log.write(f"    3. Re-run — full pack + verify pipeline will run")
     else:
         log.write(red(f"  {failures} FAILURE(S) — review log for details"))
+        if discoveries:
+            log.write(yellow(f"  {len(discoveries)} file(s) in discovery mode (not counted as failures):"))
+            for d in sorted(discoveries):
+                log.write(f"    • {d}.bin")
 
     if out_cfg['generate_yaml_example']:
         log.head("Generate YAML Example")
         write_yaml_example(all_bases, cfg, defaults, SCRIPT_DIR, log)
+
+    # Save updated config state
+    for base in all_bases:
+        bin_cfg = get_binary_cfg(cfg, f'{base}.bin', defaults)
+        if bin_cfg is not None:
+            new_state[base] = _cfg_fingerprint(bin_cfg)
+    save_state(SCRIPT_DIR, new_state)
 
     log.write(bold(SEP))
     log.flush()
