@@ -556,14 +556,22 @@ def manage_gitignore(repo_root, track_checksum, log):
 
 # ── Run directory manager ─────────────────────────────────────────────────────
 def setup_run_dirs(build_dir, log_dir, keep_runs):
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    run_dir = build_dir / f'run_{ts}'
+    now       = datetime.now()
+    date_part = now.strftime('%Y-%m-%d')
+    time_part = now.strftime('%I-%M-%S') + now.strftime('%p').upper()
+    # Increment counter if multiple runs share the same timestamp
+    counter   = 0
+    prefix    = f'{date_part}_{time_part}'
+    while (build_dir / f'{prefix}_{counter:03d}').exists():
+        counter += 1
+    ts      = f'{prefix}_{counter:03d}'
+    run_dir = build_dir / ts
     (run_dir / 'packed').mkdir(parents=True, exist_ok=True)
     (build_dir / 'latest' / 'packed').mkdir(parents=True, exist_ok=True)
     # rollback/ created lazily — only when .txt reformatting runs
     log_dir.mkdir(parents=True, exist_ok=True)
     # Prune old runs
-    runs = sorted(build_dir.glob('run_*'), key=lambda p: p.stat().st_mtime)
+    runs = sorted(build_dir.glob('????-??-??_*'), key=lambda p: p.stat().st_mtime)
     while len(runs) >= keep_runs:
         shutil.rmtree(runs.pop(0), ignore_errors=True)
     return run_dir, ts
