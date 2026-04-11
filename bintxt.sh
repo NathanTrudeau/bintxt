@@ -362,14 +362,29 @@ def check_cfg_change(base, bin_cfg, state, log):
     curr = _cfg_fingerprint(bin_cfg)
     if prev is None or prev == curr:
         return False
-    log.warn(f"YAML settings changed for {base}.bin since last run:")
+    log.warn(f"YAML settings changed for {base} since last run:")
     for k in _STATE_KEYS:
         old_v = prev.get(k, '—')
         new_v = curr.get(k, '—')
         if old_v != new_v:
             log.write(f"    {k}: {yellow(str(old_v))} → {cyan(str(new_v))}")
-    log.write(f"    Note: existing {base}.txt was generated with old settings.")
-    log.write(f"    Re-pack will use new settings — verify output carefully.")
+    return True
+
+def try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, log):
+    """Re-extract .txt from build/latest/input_bins/<base>.bin using updated YAML settings.
+    Returns True if successful, False if no cached bin available."""
+    cached_bin = build_dir / 'latest' / 'input_bins' / f'{base}.bin'
+    if not cached_bin.exists():
+        log.warn(f"  Cannot auto re-extract {base}.txt — no cached bin in build/latest/input_bins/")
+        log.write(f"  Drop the original {base}.bin into configs/ and re-run to regenerate.")
+        return False
+    unpacked = unpack(cached_bin, bin_cfg, val_cfg, log)
+    if unpacked is None:
+        log.err(f"  Re-extraction of {base}.bin failed — check YAML settings")
+        return False
+    txt_path = config_dir / f'{base}.txt'
+    txt_path.write_text(unpacked, encoding='utf-8')
+    log.ok(f"  Re-extracted {base}.txt under new settings — review diff before committing")
     return True
 
 # ── Logger ────────────────────────────────────────────────────────────────────
@@ -437,7 +452,7 @@ def manage_gitignore(repo_root, track_checksum, log):
 def setup_run_dirs(build_dir, log_dir, keep_runs):
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_dir = build_dir / f'run_{ts}'
-    for sub in ('packed', 'unpacked'):
+    for sub in ('packed', 'unpacked', 'input_bins'):
         (run_dir / sub).mkdir(parents=True, exist_ok=True)
         (build_dir / 'latest' / sub).mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -883,7 +898,14 @@ def main():
             # Continue — best-effort unpack only; skip pack + verify
         else:
             # Check if YAML settings changed since last run
-            check_cfg_change(base, bin_cfg, run_state, log)
+            cfg_changed = check_cfg_change(base, bin_cfg, run_state, log)
+            if cfg_changed and has_txt and not has_bin:
+                # .txt exists but was generated with old settings — auto re-extract
+                log.write(f"  Auto re-extracting {base}.txt from cached bin...")
+                reextracted = try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, log)
+                if reextracted:
+                    # Refresh has_txt (file was just rewritten)
+                    has_txt = (config_dir / f'{base}.txt').exists()
 
         # Validate label addresses
         if bin_cfg['label'] and val_cfg['fail_on_missing_label_address'] and has_bin:
@@ -951,9 +973,10 @@ def main():
 
                 # Move .bin out of configs/ — bins don't belong there
                 input_bins_dir = run_dir / 'input_bins'
-                input_bins_dir.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(bin_path), str(input_bins_dir / f'{base}.bin'))
                 bin_path = input_bins_dir / f'{base}.bin'  # update ref for verify step
+                # Keep latest copy for YAML-change auto re-extraction
+                shutil.copy2(bin_path, build_dir / 'latest' / 'input_bins' / f'{base}.bin')
                 log.info(f"Moved {base}.bin → build/ (bins don't belong in configs/)")
 
                 log.ok(f"Unpacked: {base}.txt  ({len(unpacked_txt.splitlines())} lines)")
