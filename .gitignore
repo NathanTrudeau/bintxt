@@ -9,3 +9,4 @@ configs/*.md5
 configs/*.sha256
 build/
 logs/
+examples/
