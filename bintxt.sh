@@ -344,7 +344,7 @@ def _cfg_fingerprint(bin_cfg):
     fp = {k: bin_cfg[k] for k in _STATE_KEYS}
     # Include labels list so label additions/renames/removals trigger re-extract
     fp['labels'] = sorted(
-        (str(l.get('address', '')), str(l.get('label', '')))
+        [str(l.get('address', '')), str(l.get('label', ''))]
         for l in (bin_cfg.get('labels') or [])
     )
     return fp
@@ -377,12 +377,12 @@ def check_cfg_change(base, bin_cfg, state, log):
     return True
 
 def try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, run_dir, log):
-    """Re-extract .txt from build/latest/input_bins/<base>.bin using updated YAML settings.
-    Backs up the old .txt to run_dir/old_txts/ before overwriting.
+    """Re-extract .txt from build/latest/source_bins/<base>.bin using updated YAML settings.
+    Backs up the old .txt to run_dir/rollback/ before overwriting.
     Returns True if successful, False if no cached bin available."""
-    cached_bin = build_dir / 'latest' / 'input_bins' / f'{base}.bin'
+    cached_bin = build_dir / 'latest' / 'source_bins' / f'{base}.bin'
     if not cached_bin.exists():
-        log.warn(f"  Cannot auto re-extract {base}.txt — no cached bin in build/latest/input_bins/")
+        log.warn(f"  Cannot auto re-extract {base}.txt — no cached bin in build/latest/source_bins/")
         log.write(f"  Drop the original {base}.bin into configs/ and re-run to regenerate.")
         return False
     unpacked = unpack(cached_bin, bin_cfg, val_cfg, log)
@@ -390,12 +390,12 @@ def try_reextract(base, bin_cfg, val_cfg, build_dir, config_dir, run_dir, log):
         log.err(f"  Re-extraction of {base}.bin failed — check YAML settings")
         return False
     txt_path = config_dir / f'{base}.txt'
-    # Back up old .txt before overwriting
+    # Back up old .txt to rollback/ before overwriting
     if txt_path.exists():
-        old_txts_dir = run_dir / 'old_txts'
-        old_txts_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(txt_path, old_txts_dir / f'{base}.txt')
-        log.info(f"  Backed up old {base}.txt → build/run_<ts>/old_txts/")
+        rollback_dir = run_dir / 'rollback'
+        rollback_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(txt_path, rollback_dir / f'{base}.txt')
+        log.info(f"  Backed up old {base}.txt → build/run_<ts>/rollback/")
     txt_path.write_text(unpacked, encoding='utf-8')
     log.ok(f"  Re-extracted {base}.txt under new settings — review diff before committing")
     return True
@@ -465,10 +465,9 @@ def manage_gitignore(repo_root, track_checksum, log):
 def setup_run_dirs(build_dir, log_dir, keep_runs):
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_dir = build_dir / f'run_{ts}'
-    for sub in ('packed', 'unpacked'):
-        (run_dir / sub).mkdir(parents=True, exist_ok=True)
-        (build_dir / 'latest' / sub).mkdir(parents=True, exist_ok=True)
-    # input_bins/ created lazily — only if .bin files are actually found in configs/
+    (run_dir / 'packed').mkdir(parents=True, exist_ok=True)
+    (build_dir / 'latest' / 'packed').mkdir(parents=True, exist_ok=True)
+    # source_bins/ and rollback/ created lazily — only when actually needed
     log_dir.mkdir(parents=True, exist_ok=True)
     # Prune old runs
     runs = sorted(build_dir.glob('run_*'), key=lambda p: p.stat().st_mtime)
@@ -974,27 +973,20 @@ def main():
             log.write(f"  UNPACK {cyan(bin_path.name)} → ...")
             unpacked_txt = unpack(bin_path, bin_cfg, val_cfg, log)
             if unpacked_txt is not None:
-                # Always write to build/
-                out_u = run_dir / 'unpacked' / f'{base}.txt'
-                out_u.write_text(unpacked_txt, encoding='utf-8')
-                shutil.copy2(out_u, build_dir / 'latest' / 'unpacked' / f'{base}.txt')
-
-                # Write to configs/ if no .txt exists yet
-                # — populates the source of truth on first encounter
+                # Write to configs/ — this is the source of truth
                 if not has_txt:
                     (config_dir / f'{base}.txt').write_text(unpacked_txt, encoding='utf-8')
                     log.info(f"First run: wrote {base}.txt → configs/ for inspection")
 
-                # Move .bin out of configs/ — bins don't belong there
-                # Both dirs created lazily here, only when bins are actually present
-                input_bins_dir = run_dir / 'input_bins'
-                input_bins_dir.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(bin_path), str(input_bins_dir / f'{base}.bin'))
-                bin_path = input_bins_dir / f'{base}.bin'  # update ref for verify step
-                # Keep latest copy for YAML-change auto re-extraction
-                latest_input_bins = build_dir / 'latest' / 'input_bins'
-                latest_input_bins.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(bin_path, latest_input_bins / f'{base}.bin')
+                # Move .bin out of configs/ into source_bins/ (created lazily)
+                source_bins_dir = run_dir / 'source_bins'
+                source_bins_dir.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(bin_path), str(source_bins_dir / f'{base}.bin'))
+                bin_path = source_bins_dir / f'{base}.bin'  # update ref for verify step
+                # Keep latest copy in build/latest/source_bins/ for re-extraction
+                latest_source_bins = build_dir / 'latest' / 'source_bins'
+                latest_source_bins.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(bin_path, latest_source_bins / f'{base}.bin')
                 log.info(f"Moved {base}.bin → build/ (bins don't belong in configs/)")
 
                 log.ok(f"Unpacked: {base}.txt  ({len(unpacked_txt.splitlines())} lines)")

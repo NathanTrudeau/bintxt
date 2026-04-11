@@ -161,15 +161,18 @@ Per-binary format overrides and label definitions go under `binaries:` — see t
 your_project/
   build/
     latest/
-      packed/       ← most recent pack outputs (.bin)
-      unpacked/     ← most recent unpack outputs (.txt)
+      packed/         ← most recent pack outputs (.bin) — always current
+      source_bins/    ← most recent input .bins (used for auto re-extraction on YAML change)
     run_20260408_013045/
-      packed/
-      unpacked/
+      packed/         ← .bin outputs for this run
+      source_bins/    ← .bin files that were in configs/ this run (created only if bins were present)
+      rollback/       ← .txt snapshots before any re-extraction (created only if re-extract ran)
   logs/
     latest.log
     2026-04-08_01PM_30_bintxtLog.txt
 ```
+
+`.txt` files are written directly to your `configs/` folder — they are the source of truth and are not duplicated into `build/`. `source_bins/` and `rollback/` are created lazily and only appear when needed.
 
 Old `build/run_*` directories are pruned automatically based on `output.keep_runs`.
 
@@ -178,10 +181,12 @@ Old `build/run_*` directories are pruned automatically based on `output.keep_run
 ## What it does
 
 **Pack** — converts `configs/foo.txt` → `build/run_<ts>/packed/foo.bin`
-If no `foo.bin` exists yet in `configs/`, the packed output is written there too.
 
-**Unpack** — converts `configs/foo.bin` → `build/run_<ts>/unpacked/foo.txt`
+**Unpack** — converts `configs/foo.bin` → `configs/foo.txt` (source of truth, written in place)
 Labels defined in `bintxt_cfg.yaml` are injected as `@label` markers automatically.
+The original `.bin` is moved to `build/run_<ts>/source_bins/` — bins don't belong in configs.
+
+**YAML change detection** — if you update format settings or labels in `bintxt_cfg.yaml`, bintxt detects the change on the next run, automatically re-extracts `.txt` files from the cached bin in `build/latest/source_bins/`, and backs up the old `.txt` to `build/run_<ts>/rollback/` before overwriting.
 
 **Verify** — three independent checks per file:
 - `verify_pack` — packed binary matches source `.txt`
