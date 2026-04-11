@@ -187,6 +187,8 @@ The original `.bin` is moved to `build/run_<ts>/` — bins don't belong in confi
 
 **YAML change detection** — if you update format settings or labels in `bintxt_cfg.yaml`, bintxt detects the change on the next run and automatically reformats the `.txt` to match the new settings — no binary needed. It reads the existing `.txt` using the old settings (tracked in `.bintxt_state`), extracts the raw bytes, and re-serializes them under the new format with new labels injected. The old `.txt` is backed up to `build/run_<ts>/rollback/` before overwriting.
 
+**Source change tracking** — bintxt hashes each `.txt` after every run and stores it in `.bintxt_state`. On the next run, if the file has changed (e.g. you edited a byte value), it reports `source: modified since last run` in the per-file output. New files are reported as `source: new`. This gives you a clear audit trail of what changed between runs without needing to diff manually.
+
 **Verify** — three independent checks per file:
 - `verify_pack` — packed binary matches source `.txt`
 - `verify_unpack` — unpacked `.txt` matches source `.bin`

@@ -342,12 +342,20 @@ _STATE_KEYS = ('word_bits', 'words_per_line', 'address_bits', 'endianness',
 
 def _cfg_fingerprint(bin_cfg):
     fp = {k: bin_cfg[k] for k in _STATE_KEYS}
-    # Include labels list so label additions/renames/removals trigger re-extract
+    # Include labels list so label additions/renames/removals trigger reformat
     fp['labels'] = sorted(
         [str(l.get('address', '')), str(l.get('label', ''))]
         for l in (bin_cfg.get('labels') or [])
     )
     return fp
+
+def _txt_hash(txt_path):
+    """SHA-256 of the .txt content, ignoring line endings. Returns hex string."""
+    try:
+        content = Path(txt_path).read_text(encoding='utf-8').replace('\r\n', '\n')
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+    except Exception:
+        return None
 
 def load_state(script_dir):
     p = Path(script_dir) / '.bintxt_state'
@@ -978,6 +986,15 @@ def main():
         log.write(bold("─" * 62))
         log.write(f"  {bold(base)}")
 
+        # Report .txt source changes since last run
+        if has_txt:
+            curr_hash = _txt_hash(txt_path)
+            prev_hash = run_state.get(base, {}).get('txt_hash')
+            if prev_hash is None:
+                log.info(f"  source: new")
+            elif curr_hash != prev_hash:
+                log.warn(f"  source: modified since last run")
+
         # Get binary config
         bin_cfg       = get_binary_cfg(cfg, f'{base}.bin', defaults)
         no_yaml_entry = bin_cfg is None
@@ -1102,7 +1119,8 @@ def main():
     for phase, res in results.items():
         if not res:
             continue
-        log.write(f"\n  {bold(phase.upper().replace('_', ' '))}:")
+        label = phase.replace('_', ' ').title()
+        log.write(f"\n  {bold(label)}:")
         for name, status in sorted(res.items()):
             (log.ok if status == 'PASS' else log.err)(f"{name}: {status}")
 
@@ -1142,13 +1160,15 @@ def main():
 
     # Save updated config state
     # Discovery runs save the default fingerprint so the next run (with real YAML)
-    # can detect the settings change and auto re-extract .txt files
+    # can detect the settings change and reformat .txt files
     for base in all_bases:
         bin_cfg = get_binary_cfg(cfg, f'{base}.bin', defaults)
-        if bin_cfg is not None:
-            new_state[base] = _cfg_fingerprint(bin_cfg)
-        elif base in discoveries:
-            new_state[base] = _cfg_fingerprint(_default_bin_cfg(f'{base}.bin', defaults))
+        fp = _cfg_fingerprint(bin_cfg) if bin_cfg is not None \
+             else _cfg_fingerprint(_default_bin_cfg(f'{base}.bin', defaults))
+        # Always snapshot current .txt hash (post-run, after any reformat/unpack)
+        txt_p = config_dir / f'{base}.txt'
+        fp['txt_hash'] = _txt_hash(txt_p) if txt_p.exists() else None
+        new_state[base] = fp
     save_state(SCRIPT_DIR, new_state)
 
     log.write(bold(SEP))
