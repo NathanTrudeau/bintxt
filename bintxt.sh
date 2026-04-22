@@ -245,10 +245,10 @@ def _minimal_yaml(text):
 # ── Config validation ─────────────────────────────────────────────────────────
 def validate_cfg(cfg):
     errors = []
-    if not isinstance(cfg, dict):
-        return ["YAML root must be a mapping"]
+    if not isinstance(cfg, dict) or not cfg:
+        return ["bintxt_cfg.yaml is empty or not a valid mapping — copy the template and configure it"]
     if cfg.get('version') != 1:
-        errors.append("'version' must be 1")
+        errors.append(f"'version' must be 1 (got: {cfg.get('version')!r})")
     paths = cfg.get('paths')
     if not isinstance(paths, dict):
         errors.append("'paths' section is required and must be a mapping")
@@ -539,7 +539,8 @@ def manage_gitignore(repo_root, track_checksum, log):
             lines.remove(pat)
             changed = True
 
-    for pat in ('configs/*.bin', 'build/', 'logs/', '.bintxt_state'):
+    for pat in ('configs/*.bin', 'build/', 'logs/', '.bintxt_state',
+                'bintxt_cfg.example.yaml'):
         ensure(pat)
 
     crc_pats = ['configs/*.crc32', 'configs/*.md5', 'configs/*.sha256']
@@ -608,7 +609,12 @@ def parse_txt(path, bin_cfg, val_cfg, log):
     seen_addrs = set()
     prev_addr  = None
 
-    for lineno, raw in enumerate(Path(path).read_text().splitlines(), 1):
+    try:
+        raw_text = Path(path).read_text(encoding='utf-8')
+    except (UnicodeDecodeError, PermissionError) as e:
+        return [], [f"cannot read file: {e}"], []
+
+    for lineno, raw in enumerate(raw_text.splitlines(), 1):
         line = raw.strip()
         if not line:
             continue
@@ -754,7 +760,15 @@ def pack(txt_path, bin_cfg, val_cfg, log):
 # ── Unpack (bin → txt) ────────────────────────────────────────────────────────
 def unpack(bin_path, bin_cfg, val_cfg, log):
     name = Path(bin_path).name
-    data = Path(bin_path).read_bytes()
+    try:
+        data = Path(bin_path).read_bytes()
+    except (PermissionError, OSError) as e:
+        log.err(f"{name}: cannot read binary — {e}")
+        return None
+
+    if len(data) == 0:
+        log.err(f"{name}: file is empty (0 bytes)")
+        return None
 
     word_bits  = bin_cfg['word_bits']
     word_bytes = word_bits // 8
@@ -977,6 +991,13 @@ def main():
     all_bases = sorted(
         set(f.stem for f in txt_files) | set(f.stem for f in bin_files)
     )
+
+    # Warn about YAML entries that reference files not present in configs/
+    for entry in (cfg.get('binaries') or []):
+        fname = entry.get('file', '')
+        base  = Path(fname).stem
+        if base and base not in all_bases:
+            log.warn(f"  YAML references '{fname}' but no .txt or .bin found in configs/ — skipping")
 
     if not all_bases:
         log.warn("No .txt or .bin files found in configs/")
