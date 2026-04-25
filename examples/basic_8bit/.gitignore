@@ -1,0 +1,8 @@
+configs/*.bin
+build/
+logs/
+.bintxt_state
+bintxt_cfg.example.yaml
+configs/*.crc32
+configs/*.md5
+configs/*.sha256
