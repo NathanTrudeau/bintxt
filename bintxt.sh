@@ -357,6 +357,20 @@ def _txt_hash(txt_path):
     except Exception:
         return None
 
+def _has_hex_data(txt_path):
+    """Quick check: does this .txt contain any lines that look like hex data?
+    A line is hex-like if it has a colon and isn't a comment or label marker."""
+    try:
+        for line in Path(txt_path).read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith('@'):
+                continue
+            if ':' in line:
+                return True
+        return False
+    except Exception:
+        return False
+
 def load_state(script_dir):
     p = Path(script_dir) / '.bintxt_state'
     if p.exists():
@@ -1031,6 +1045,18 @@ def main():
                 log.info(f"  source: new")
             elif prev_hash is not None and curr_hash != prev_hash:
                 log.warn(f"  source: modified since last run")
+
+        # Check if .txt is recognizable as hex data before going further
+        bin_cfg_check = get_binary_cfg(cfg, f'{base}.bin', defaults)
+        if has_txt and not has_bin and not _has_hex_data(txt_path):
+            if bin_cfg_check is None:
+                # No YAML entry + no hex data = stray file, soft skip
+                log.warn(f"  {base}.txt — skipped (no hex data, likely a non-binary file)")
+            else:
+                # YAML entry exists but .txt has no hex data = real error
+                log.err(f"  {base}.txt — no hex data found but has a YAML entry")
+                failures += 1
+            continue
 
         # Get binary config
         bin_cfg       = get_binary_cfg(cfg, f'{base}.bin', defaults)
