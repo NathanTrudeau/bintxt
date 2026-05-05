@@ -14,6 +14,36 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CFG_FILE="$SCRIPT_DIR/bintxt_cfg.yaml"
+EXCLUDE_ARGS=()
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -cfg)
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo "ERROR: -cfg requires a path argument."
+                read -rsp $'\nPress any key to exit...' -n 1; echo ""
+                exit 1
+            fi
+            CFG_FILE="$1"
+            shift
+            ;;
+        -exclude)
+            shift
+            while [[ $# -gt 0 && "$1" != -* ]]; do
+                EXCLUDE_ARGS+=("$1")
+                shift
+            done
+            ;;
+        *)
+            echo "ERROR: Unknown argument: $1"
+            echo "       Usage: ./bintxt.sh [-cfg path/to/config.yaml] [-exclude file1 file2 ...]"
+            read -rsp $'\nPress any key to exit...' -n 1; echo ""
+            exit 1
+            ;;
+    esac
+done
 
 # ── Python resolver ───────────────────────────────────────────────────────────
 # Tries .exe-suffixed names first (Git Bash on Windows finds these reliably),
@@ -64,7 +94,7 @@ if [[ ! -f "$CFG_FILE" ]]; then
 fi
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
-"${PY_CMD[@]}" - "$SCRIPT_DIR" "$CFG_FILE" <<'PYEOF'
+"${PY_CMD[@]}" - "$SCRIPT_DIR" "$CFG_FILE" "${EXCLUDE_ARGS[@]+"${EXCLUDE_ARGS[@]}"}" <<'PYEOF'
 import os, sys, re, zlib, hashlib, shutil
 from datetime import datetime
 from pathlib import Path
@@ -76,8 +106,9 @@ try:
 except AttributeError:
     pass  # Python < 3.7 fallback (reconfigure not available)
 
-SCRIPT_DIR = Path(sys.argv[1])
-CFG_FILE   = Path(sys.argv[2])
+SCRIPT_DIR   = Path(sys.argv[1])
+CFG_FILE     = Path(sys.argv[2])
+EXCLUDE_SET  = {Path(x).stem for x in sys.argv[3:]}  # stems only — works for both foo.bin and foo.txt
 
 
 
@@ -984,6 +1015,10 @@ def main():
     log.write(bold(SEP))
     log.write(bold("  bintxt — Binary ↔ Text Truth Pipeline"))
     log.write(bold(f"  Run: {ts}"))
+    if CFG_FILE.name != 'bintxt_cfg.yaml':
+        log.write(bold(f"  Config: {CFG_FILE}"))
+    if EXCLUDE_SET:
+        log.write(bold(f"  Excluding: {', '.join(sorted(EXCLUDE_SET))}"))
     log.write(bold(SEP))
 
     # Manage .gitignore
@@ -1005,6 +1040,18 @@ def main():
     all_bases = sorted(
         set(f.stem for f in txt_files) | set(f.stem for f in bin_files)
     )
+
+    # Apply -exclude filter (ephemeral — this run only, not saved to state)
+    if EXCLUDE_SET:
+        excluded = [b for b in all_bases if b in EXCLUDE_SET]
+        all_bases = [b for b in all_bases if b not in EXCLUDE_SET]
+        unknown   = EXCLUDE_SET - {Path(f).stem for f in
+                        [e.get('file','') for e in (cfg.get('binaries') or [])] +
+                        [f.name for f in list(txt_files) + list(bin_files)]}
+        for b in excluded:
+            log.info(f"  Excluded (this run): {b}")
+        for u in sorted(unknown):
+            log.warn(f"  -exclude '{u}' — no matching file found in configs/")
 
     # Warn about YAML entries that reference files not present in configs/
     for entry in (cfg.get('binaries') or []):

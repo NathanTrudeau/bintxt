@@ -18,6 +18,38 @@ Drop `bintxt.sh` and `bintxt_cfg.yaml` into any repo. Run it before every commit
 
 ---
 
+## Usage
+
+```bash
+./bintxt.sh [options]
+```
+
+| Flag | Description |
+|---|---|
+| *(none)* | Normal run — uses `bintxt_cfg.yaml` next to the script |
+| `-cfg <path>` | Use a different YAML config file for this run |
+| `-exclude f1 f2 ...` | Skip listed files this run only (ephemeral — not saved) |
+
+**Examples**
+
+```bash
+# Standard run
+./bintxt.sh
+
+# Use an alternate config (e.g. hardware rev B settings)
+./bintxt.sh -cfg hw_rev_b.yaml
+
+# Skip specific files this run
+./bintxt.sh -exclude debug_scratch.bin old_prototype.txt
+
+# Combine both
+./bintxt.sh -cfg hw_rev_b.yaml -exclude debug_scratch.bin
+```
+
+`-exclude` accepts `.bin` or `.txt` names interchangeably — it matches by stem. Excluded files are logged but not touched; state is unchanged.
+
+---
+
 ## Quick Start
 
 **1. Drop files into your repo root**
@@ -233,6 +265,8 @@ binaries:
 
 ### `configs/boot_cfg.txt`
 
+32-bit addresses, 32-bit words, 4 words per line, little-endian.
+
 ```
 @label BOOT_IDENTITY
 00000000: deadbeef 00010003 00000007 00000004
@@ -240,4 +274,32 @@ binaries:
 00000010: 00001388 08000000 20000000 00008000
 @label SECURITY_AND_CANARY
 00000020: 00000001 ffffffff ffffffff 5a5a5a5a
+```
+
+### `configs/gpio_map.txt`
+
+32-bit addresses, 8-bit words, 8 words per line, little-endian.
+
+```
+@label PORT_A
+00000000: 01 00 ff 3c 00 00 01 00
+@label PORT_B
+00000008: 02 00 ff 3c 00 00 02 00
+```
+
+### `configs/nvmem.txt`
+
+32-bit addresses, 8-bit words, 2 words per line, big-endian, SHA-256 checksum.
+
+```
+@label DEVICE_MAGIC
+00000000: de ad
+00000002: be ef
+00000004: ca fe
+00000006: ba be
+@label ADC_CAL
+00000008: 3f 80
+0000000a: 40 00
+0000000c: 40 40
+0000000e: 40 80
 ```
