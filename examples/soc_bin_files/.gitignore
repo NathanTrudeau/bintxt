@@ -1,4 +1,4 @@
-configs/*.bin
+configs/*.txt
 build/
 logs/
 .bintxt_state
