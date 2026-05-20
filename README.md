@@ -27,8 +27,8 @@ Drop `bintxt.sh` and `bintxt_cfg.yaml` into any repo. Run it before every commit
 | Flag | Description |
 |---|---|
 | *(none)* | Normal run — uses `bintxt_cfg.yaml` next to the script |
-| `-cfg <path>` | Use a different YAML config file for this run |
-| `-exclude f1 f2 ...` | Skip listed files this run only (ephemeral — not saved) |
+| `-f <path>` | Use a different YAML config file for this run |
+| `--exclude f1 f2 ...` | Skip listed files this run only (ephemeral — not saved) |
 
 **Examples**
 
@@ -37,16 +37,16 @@ Drop `bintxt.sh` and `bintxt_cfg.yaml` into any repo. Run it before every commit
 ./bintxt.sh
 
 # Use an alternate config (e.g. hardware rev B settings)
-./bintxt.sh -cfg hw_rev_b.yaml
+./bintxt.sh -f hw_rev_b.yaml
 
 # Skip specific files this run
-./bintxt.sh -exclude debug_scratch.bin old_prototype.txt
+./bintxt.sh --exclude debug_scratch.bin old_prototype.txt
 
 # Combine both
-./bintxt.sh -cfg hw_rev_b.yaml -exclude debug_scratch.bin
+./bintxt.sh -f hw_rev_b.yaml --exclude debug_scratch.bin
 ```
 
-`-exclude` accepts `.bin` or `.txt` names interchangeably — it matches by stem. Excluded files are logged but not touched; state is unchanged.
+`--exclude` accepts `.bin` or `.txt` names interchangeably — it matches by stem. Excluded files are logged but not touched; state is unchanged.
 
 ---
 

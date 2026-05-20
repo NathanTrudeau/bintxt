@@ -19,26 +19,26 @@ EXCLUDE_ARGS=()
 # ── Argument parsing ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -cfg)
+        -f)
             shift
             if [[ $# -eq 0 ]]; then
-                echo "ERROR: -cfg requires a path argument."
+                echo "ERROR: -f requires a path argument."
                 read -rsp $'\nPress any key to exit...' -n 1; echo ""
                 exit 1
             fi
             CFG_FILE="$1"
             shift
             ;;
-        -exclude)
+        --exclude)
             shift
-            while [[ $# -gt 0 && "$1" != -* ]]; do
+            while [[ $# -gt 0 && "$1" != -* && "$1" != --* ]]; do
                 EXCLUDE_ARGS+=("$1")
                 shift
             done
             ;;
         *)
             echo "ERROR: Unknown argument: $1"
-            echo "       Usage: ./bintxt.sh [-cfg path/to/config.yaml] [-exclude file1 file2 ...]"
+            echo "       Usage: ./bintxt.sh [-f path/to/config.yaml] [--exclude file1 file2 ...]"
             read -rsp $'\nPress any key to exit...' -n 1; echo ""
             exit 1
             ;;
