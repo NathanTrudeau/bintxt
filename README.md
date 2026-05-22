@@ -132,6 +132,25 @@ From here: edit hex content or labels in `.txt`, re-run, get updated `.bin` outp
 
 ---
 
+## Repo Structure
+
+```
+bintxt.sh              ← entry point — drop into your repo
+bintxt_cfg.yaml        ← your config (version-controlled)
+core/                  ← Python pipeline package (importable by bintxt_ui)
+  __init__.py          ← public API
+  ansi.py              ← ANSI colour helpers
+  yaml_loader.py       ← YAML parser (stdlib fallback)
+  config.py            ← config validation and accessors
+  state.py             ← change detection and .bintxt_state management
+  logger.py            ← Logger class
+  operations.py        ← pack, unpack, verify, checksum
+  fs.py                ← .gitignore, run dirs, YAML example generator
+  pipeline.py          ← main orchestration (called by bintxt.sh)
+```
+
+---
+
 ## Output Structure
 
 ```
